@@ -1,0 +1,108 @@
+name: Build and Deploy Backend
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'backend/**'
+      - '.github/**'
+  workflow_dispatch:
+
+env:
+  GO_VERSION: '1.21'
+  BINARY_NAME: yam-v1-backend
+  REPO_OWNER: xpz4y
+  REPO_NAME: yam-v1
+
+jobs:
+  build:
+    name: Build x86_64 Musl Binary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Install Musl Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Initialize Go Module
+        working-directory: ./backend
+        run: |
+          if [ ! -f go.mod ]; then
+            go mod init github.com/${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}/backend
+            go mod tidy
+          fi
+
+      - name: Build Static Musl Binary
+        working-directory: ./backend
+        run: |
+          mkdir -p builds
+          CC=musl-gcc GOOS=linux GOARCH=amd64 CGO_ENABLED=1 \
+          go build -ldflags="-s -w -linkmode external -extldflags '-static'" \
+          -o builds/${{ env.BINARY_NAME }}-linux-x86_64-musl .
+
+      - name: Verify Binary
+        working-directory: ./backend/builds
+        run: |
+          file ${{ env.BINARY_NAME }}-linux-x86_64-musl
+          ls -lh ${{ env.BINARY_NAME }}-linux-x86_64-musl
+          ldd ${{ env.BINARY_NAME }}-linux-x86_64-musl 2>&1 || echo "Static binary - no dynamic dependencies"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BINARY_NAME }}-linux-x86_64-musl
+          path: backend/builds/${{ env.BINARY_NAME }}-linux-x86_64-musl
+          retention-days: 1
+
+  deploy:
+    name: Deploy to Binary Repository
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/master'
+    steps:
+      - name: Checkout Binary Repo
+        run: |
+          git clone https://x-access-token:${{ secrets.PERSONAL_PAT }}@github.com/${{ env.REPO_OWNER }}/${{ env.REPO_NAME }}.git binary-repo
+          cd binary-repo
+          git config user.email "bot@voidlinux.org"
+          git config user.name "GitHub Actions Bot"
+
+      - name: Download Build
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.BINARY_NAME }}-linux-x86_64-musl
+          path: binary-repo/backend/builds/
+
+      - name: Prepare Repository
+        working-directory: ./binary-repo
+        run: |
+          mkdir -p backend/builds
+          chmod +x backend/builds/${{ env.BINARY_NAME }}-linux-x86_64-musl
+          ls -la backend/builds/
+
+      - name: Generate Checksum
+        working-directory: ./binary-repo/backend/builds
+        run: |
+          sha256sum ${{ env.BINARY_NAME }}-linux-x86_64-musl > ${{ env.BINARY_NAME }}-linux-x86_64-musl.sha256
+          cat ${{ env.BINARY_NAME }}-linux-x86_64-musl.sha256
+
+      - name: Commit and Push
+        working-directory: ./binary-repo
+        run: |
+          git add -f backend/builds/
+          git commit -m "Deploy backend build from ${{ github.sha }}
+          
+          Binary: ${{ env.BINARY_NAME }}-linux-x86_64-musl
+          Trigger: ${{ github.event_name }}
+          Commit: ${{ github.sha }}" || echo "No changes to commit"
+          git push origin master
