@@ -7,48 +7,52 @@ import '@xyflow/react/dist/style.css';
 
 const nodeTypesList = [
   // Common Blocks
-  { type: 'execute-branch', label: 'Execute Workflow on Branch', category: 'Common' },
-  { type: 'container-setup', label: 'Container Setup (Job Level)', category: 'Common' },
-  { type: 'echo', label: 'Echo', category: 'Common' },
-  { type: 'checkout', label: 'Checkout Code', category: 'Common' },
-  { type: 'setup-go', label: 'Setup Go', category: 'Common' },
-  { type: 'run-script', label: 'Run Script', category: 'Common' },
-  { type: 'upload-artifact', label: 'Upload Artifact', category: 'Common' },
-  { type: 'download-artifact', label: 'Download Artifact', category: 'Common' },
-  { type: 'github-release', label: 'GitHub Release', category: 'Common' },
+  { type: 'supernode', label: 'Super Node', category: 'Common', color: '#10b981' },
+  { type: 'execute-branch', label: 'Execute Workflow on Branch', category: 'Common', color: '#f59e0b' },
+  { type: 'container-setup', label: 'Container Setup (Job)', category: 'Common', color: '#3b82f6' },
+  { type: 'echo', label: 'Echo', category: 'Common', color: '#10b981' },
+  { type: 'checkout', label: 'Checkout Code', category: 'Common', color: '#f59e0b' },
+  { type: 'setup-go', label: 'Setup Go', category: 'Common', color: '#3b82f6' },
+  { type: 'run-script', label: 'Run Script', category: 'Common', color: '#10b981' },
+  { type: 'upload-artifact', label: 'Upload Artifact', category: 'Common', color: '#ec4899' },
+  { type: 'download-artifact', label: 'Download Artifact', category: 'Common', color: '#ec4899' },
+  { type: 'github-release', label: 'GitHub Release', category: 'Common', color: '#ec4899' },
   
   // Pro: Void Build Blocks
-  { type: 'void-prep', label: 'Void: Prepare Container', category: 'Pro: Void Build Blocks' },
-  { type: 'checkout-treeless', label: 'Treeless Checkout', category: 'Pro: Void Build Blocks' },
-  { type: 'void-masterdir', label: 'Void: Prepare Masterdir', category: 'Pro: Void Build Blocks' },
-  { type: 'xbps-build', label: 'Void: Build Package', category: 'Pro: Void Build Blocks' },
-  { type: 'find-xbps', label: 'Void: Find XBPS Package', category: 'Pro: Void Build Blocks' },
-  { type: 'lfs-upload', label: 'Git LFS Upload', category: 'Pro: Void Build Blocks' }
+  { type: 'void-prep', label: 'Void: Prepare Container', category: 'Pro: Void Build Blocks', color: '#3b82f6' },
+  { type: 'checkout-treeless', label: 'Treeless Checkout', category: 'Pro: Void Build Blocks', color: '#f59e0b' },
+  { type: 'void-masterdir', label: 'Void: Prepare Masterdir', category: 'Pro: Void Build Blocks', color: '#10b981' },
+  { type: 'xbps-build', label: 'Void: Build Package', category: 'Pro: Void Build Blocks', color: '#10b981' },
+  { type: 'find-xbps', label: 'Void: Find XBPS Package', category: 'Pro: Void Build Blocks', color: '#ec4899' },
+  { type: 'lfs-upload', label: 'Git LFS Upload', category: 'Pro: Void Build Blocks', color: '#f59e0b' }
 ];
 
 const bounds = [[-2000, -2000], [2000, 2000]];
 
 const CustomNode = ({ id, data }) => {
   const { updateNodeData } = useReactFlow();
+  const borderColor = data.color || '#444';
 
   return (
-    <div style={{ background: '#222', border: '1px solid #444', borderRadius: '6px', padding: '10px', minWidth: '220px', maxWidth: '350px', color: '#E6E6E6' }}>
+    <div style={{ background: '#222', border: `1px solid #444`, borderTop: `4px solid ${borderColor}`, borderRadius: '6px', padding: '10px', minWidth: '220px', maxWidth: '350px', color: '#E6E6E6', position: 'relative' }}>
       <Handle type="target" position={Position.Top} style={{ background: '#555' }} />
+      
       <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '12px', borderBottom: '1px solid #333', paddingBottom: '4px' }}>
         {data.label}
       </div>
+      
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
         {Object.entries(data).map(([key, val]) => {
-          if (key === 'label') return null;
+          if (['label', 'color'].includes(key)) return null;
           return (
             <div key={key} style={{ display: 'flex', flexDirection: 'column' }}>
               <label style={{ fontSize: '10px', color: '#AAA', marginBottom: '2px' }}>{key}</label>
-              {key === 'run' ? (
+              {(key === 'run' || key === 'commands') ? (
                 <textarea 
                   className="nodrag"
                   value={val}
                   onChange={(e) => updateNodeData(id, { [key]: e.target.value })}
-                  style={{ background: '#111', border: '1px solid #444', color: '#FFF', padding: '6px', borderRadius: '4px', fontSize: '10px', minHeight: '80px', fontFamily: 'monospace', resize: 'vertical' }}
+                  style={{ background: '#111', border: '1px solid #444', color: '#FFF', padding: '6px', borderRadius: '4px', fontSize: '10px', minHeight: '60px', fontFamily: 'monospace', resize: 'vertical' }}
                 />
               ) : (
                 <input 
@@ -116,7 +120,9 @@ const generateYamlLocally = (nodes, edges) => {
     if (!node) return;
     if (node.type === 'container-setup') return;
 
-    yaml += `      - name: "${node.data.label || node.id}"\n`;
+    // Use custom node_name if provided by a Supernode, else fall back to label/id
+    const stepName = node.data.node_name || node.data.label || node.id;
+    yaml += `      - name: "${stepName}"\n`;
     
     if (node.data.id) yaml += `        id: ${node.data.id}\n`;
     
@@ -126,14 +132,15 @@ const generateYamlLocally = (nodes, edges) => {
     if (node.data.uses) {
       yaml += `        uses: ${node.data.uses}\n`;
       isUses = true;
-    } else if (node.data.run) {
-      if (node.data.run.includes('\n')) {
+    } else if (node.data.run || node.data.commands) {
+      const scriptContent = node.data.run || node.data.commands;
+      if (scriptContent.includes('\n')) {
         yaml += `        run: |\n`;
-        node.data.run.split('\n').forEach(line => {
+        scriptContent.split('\n').forEach(line => {
           yaml += `          ${line}\n`;
         });
       } else {
-        yaml += `        run: ${node.data.run}\n`;
+        yaml += `        run: ${scriptContent}\n`;
       }
       isRun = true;
     } else if (node.type === 'echo') {
@@ -148,7 +155,8 @@ const generateYamlLocally = (nodes, edges) => {
     let paramBlock = '';
     
     for (const [key, value] of Object.entries(node.data)) {
-      if (['label', 'uses', 'run', 'message', 'id'].includes(key)) continue;
+      // Exclude structural/UI keys from the output
+      if (['label', 'uses', 'run', 'commands', 'message', 'id', 'color', 'node_name'].includes(key)) continue;
       paramBlock += `          ${key}: ${value === '' ? '""' : value}\n`;
       hasExtraParams = true;
     }
@@ -183,12 +191,7 @@ function WorkflowCanvas() {
   });
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentYaml, setCurrentYaml] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('yamal_current_yaml') || '';
-    }
-    return '';
-  });
+  const [currentYaml, setCurrentYaml] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('yamal_current_yaml') || '' : '');
   
   const [repoUrl, setRepoUrl] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('yamal_repo') || '' : '');
   const [pat, setPat] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('yamal_pat') || '' : '');
@@ -196,6 +199,10 @@ function WorkflowCanvas() {
   const [copyStatus, setCopyStatus] = useState('Copy to Clipboard');
   const [pushStatus, setPushStatus] = useState('Push to GitHub');
 
+  // Accordion State
+  const [openCategories, setOpenCategories] = useState({ 'Common': true, 'Pro: Void Build Blocks': false });
+
+  // Node Hover State
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState(null);
   const [trashPosition, setTrashPosition] = useState({ top: 0, left: 0 });
@@ -241,13 +248,17 @@ function WorkflowCanvas() {
     if (!type) return;
 
     const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    const nodeDef = nodeTypesList.find(n => n.type === type);
     
     const newNode = {
       id: `${type}_${Date.now()}`,
       type,
       position,
       data: { 
-        label: nodeTypesList.find(n => n.type === type)?.label,
+        label: nodeDef?.label,
+        color: nodeDef?.color, // Pass color down for rendering
+        
+        ...(type === 'supernode' && { node_name: 'Custom Super Step', commands: 'echo "I am a super node"' }),
         ...(type === 'execute-branch' && { branch_name: 'master' }),
         ...(type === 'container-setup' && { image: 'ghcr.io/void-linux/void-musl-full' }),
         ...(type === 'echo' && { message: '' }),
@@ -274,9 +285,9 @@ function WorkflowCanvas() {
 
   const loadHelloWorldTemplate = () => {
     const tNodes = [
-      { id: 't_checkout', type: 'checkout', position: { x: 250, y: 100 }, data: { label: 'Checkout Code', uses: 'actions/checkout@v4' } },
-      { id: 't_script', type: 'run-script', position: { x: 250, y: 250 }, data: { label: 'Run Script', run: 'echo "hello world" > hello.txt' } },
-      { id: 't_release', type: 'github-release', position: { x: 250, y: 400 }, data: { label: 'GitHub Release', uses: 'softprops/action-gh-release@v2', files: 'hello.txt' } }
+      { id: 't_checkout', type: 'checkout', position: { x: 250, y: 100 }, data: { label: 'Checkout Code', color: '#f59e0b', uses: 'actions/checkout@v4' } },
+      { id: 't_script', type: 'run-script', position: { x: 250, y: 250 }, data: { label: 'Run Script', color: '#10b981', run: 'echo "hello world" > hello.txt' } },
+      { id: 't_release', type: 'github-release', position: { x: 250, y: 400 }, data: { label: 'GitHub Release', color: '#ec4899', uses: 'softprops/action-gh-release@v2', files: 'hello.txt' } }
     ];
     const tEdges = [
       { id: 'te_1', source: 't_checkout', target: 't_script' },
@@ -302,7 +313,6 @@ function WorkflowCanvas() {
       alert('Cannot push empty workflow.');
       return;
     }
-
     let filename = prompt('Enter workflow file name (e.g., build.yaml):', 'workflow.yaml');
     if (!filename) return;
     if (!filename.endsWith('.yaml') && !filename.endsWith('.yml')) filename += '.yaml';
@@ -313,7 +323,7 @@ function WorkflowCanvas() {
       [owner, repo] = cleanUrl.split('/').filter(Boolean);
       if (!owner || !repo) throw new Error();
     } catch (e) {
-      alert('Invalid repository format. Use owner/repo or full URL.');
+      alert('Invalid repository format.');
       return;
     }
 
@@ -321,11 +331,7 @@ function WorkflowCanvas() {
     try {
       const path = `.github/workflows/${filename}`;
       const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
-      const headers = {
-        'Authorization': `Bearer ${pat}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
-      };
+      const headers = { 'Authorization': `Bearer ${pat}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' };
 
       let sha;
       const getRes = await fetch(apiUrl, { headers });
@@ -333,24 +339,14 @@ function WorkflowCanvas() {
         const getData = await getRes.json();
         sha = getData.sha;
       }
-
       const contentEncoded = btoa(unescape(encodeURIComponent(currentYaml)));
-
       const putRes = await fetch(apiUrl, {
         method: 'PUT',
         headers,
-        body: JSON.stringify({
-          message: `Update ${filename} via Yamal Workflow Builder`,
-          content: contentEncoded,
-          sha
-        })
+        body: JSON.stringify({ message: `Update ${filename} via Yamal Workflow Builder`, content: contentEncoded, sha })
       });
 
-      if (!putRes.ok) {
-        const err = await putRes.json();
-        throw new Error(err.message || 'Push failed');
-      }
-
+      if (!putRes.ok) throw new Error((await putRes.json()).message || 'Push failed');
       setPushStatus('Success!');
       setTimeout(() => setPushStatus('Push to GitHub'), 2000);
     } catch (err) {
@@ -380,15 +376,23 @@ function WorkflowCanvas() {
     }
   };
 
+  // Center-Right Trash Button Math
   const handleNodeMouseEnter = (event, node) => {
     const rect = event.target.getBoundingClientRect();
     setHoveredNodeId(node.id);
-    setTrashPosition({ top: rect.top + window.scrollY - 15, left: rect.right + window.scrollX - 10 });
+    setTrashPosition({ 
+      top: rect.top + window.scrollY + (rect.height / 2) - 13, // Vertically centered
+      left: rect.right + window.scrollX - 10                   // Snapped to the right edge
+    });
   };
 
   const handleEdgeMouseEnter = (event, edge) => {
     setHoveredEdgeId(edge.id);
     setTrashPosition({ top: event.clientY - 15, left: event.clientX - 15 });
+  };
+
+  const toggleCategory = (category) => {
+    setOpenCategories(prev => ({ ...prev, [category]: !prev[category] }));
   };
 
   return (
@@ -397,22 +401,31 @@ function WorkflowCanvas() {
       <aside className="sidebar" style={{ display: 'flex', flexDirection: 'column', width: '280px', background: '#222', padding: '20px', borderRight: '1px solid #333', color: '#E6E6E6', zIndex: 10, overflowY: 'auto' }}>
         <h3 style={{ marginTop: 0 }}>Nodes</h3>
         
-        <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: '15px' }}>
+        <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {['Common', 'Pro: Void Build Blocks'].map(category => (
-            <div key={category}>
-              <h4 style={{ color: '#888', margin: '0 0 8px 0', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>{category}</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {nodeTypesList.filter(n => n.category === category).map((n) => (
-                  <div
-                    key={n.type}
-                    onDragStart={(e) => onDragStart(e, n.type)}
-                    draggable
-                    style={{ background: '#2A2A2A', padding: '10px', borderRadius: '4px', cursor: 'grab', border: '1px solid #444', fontSize: '12px' }}
-                  >
-                    {n.label}
-                  </div>
-                ))}
+            <div key={category} style={{ marginBottom: '8px' }}>
+              <div 
+                onClick={() => toggleCategory(category)}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', background: '#2A2A2A', padding: '8px 10px', borderRadius: '4px', border: '1px solid #444' }}
+              >
+                <h4 style={{ color: '#E6E6E6', margin: 0, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>{category}</h4>
+                <span style={{ fontSize: '10px', color: '#888' }}>{openCategories[category] ? '▼' : '▶'}</span>
               </div>
+              
+              {openCategories[category] && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px', paddingLeft: '5px' }}>
+                  {nodeTypesList.filter(n => n.category === category).map((n) => (
+                    <div
+                      key={n.type}
+                      onDragStart={(e) => onDragStart(e, n.type)}
+                      draggable
+                      style={{ background: '#222', padding: '10px', borderRadius: '4px', cursor: 'grab', border: '1px solid #444', borderLeft: `4px solid ${n.color}`, fontSize: '12px' }}
+                    >
+                      {n.label}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -435,8 +448,6 @@ function WorkflowCanvas() {
           <button 
             onClick={handleGithubPush}
             style={{ width: '100%', padding: '10px', background: '#238636', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', transition: 'background 0.2s' }}
-            onMouseOver={(e) => e.target.style.background = '#2ea043'}
-            onMouseOut={(e) => e.target.style.background = '#238636'}
           >
             {pushStatus}
           </button>
@@ -494,7 +505,7 @@ function WorkflowCanvas() {
             onMouseEnter={() => setHoveredNodeId(hoveredNodeId)}
             onMouseLeave={() => setHoveredNodeId(null)}
             onClick={() => deleteNode(hoveredNodeId)}
-            style={{ position: 'fixed', top: trashPosition.top, left: trashPosition.left, zIndex: 1000, background: '#D83333', color: 'white', border: 'none', borderRadius: '50%', width: '26px', height: '26px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 5px rgba(0,0,0,0.3)', fontSize: '12px' }}
+            style={{ position: 'fixed', top: trashPosition.top, left: trashPosition.left, zIndex: 1000, background: '#D83333', color: 'white', border: 'none', borderRadius: '50%', width: '26px', height: '26px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.4)', fontSize: '12px', transition: 'transform 0.1s' }}
             title="Delete Node"
           >
             🗑️
@@ -506,7 +517,7 @@ function WorkflowCanvas() {
             onMouseEnter={() => setHoveredEdgeId(hoveredEdgeId)}
             onMouseLeave={() => setHoveredEdgeId(null)}
             onClick={() => deleteEdge(hoveredEdgeId)}
-            style={{ position: 'fixed', top: trashPosition.top, left: trashPosition.left, zIndex: 1000, background: '#D83333', color: 'white', border: 'none', borderRadius: '50%', width: '26px', height: '26px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 5px rgba(0,0,0,0.3)', fontSize: '12px' }}
+            style={{ position: 'fixed', top: trashPosition.top, left: trashPosition.left, zIndex: 1000, background: '#D83333', color: 'white', border: 'none', borderRadius: '50%', width: '26px', height: '26px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.4)', fontSize: '12px' }}
             title="Delete Connection"
           >
             🗑️
@@ -538,9 +549,7 @@ function WorkflowCanvas() {
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '15px' }}>
               <button 
                 onClick={handleCopy}
-                style={{ background: '#333', color: '#FFF', border: '1px solid #555', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', transition: 'background 0.2s' }}
-                onMouseOver={(e) => e.target.style.background = '#444'}
-                onMouseOut={(e) => e.target.style.background = '#333'}
+                style={{ background: '#333', color: '#FFF', border: '1px solid #555', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer' }}
               >
                 {copyStatus}
               </button>
@@ -548,13 +557,6 @@ function WorkflowCanvas() {
           </div>
         </div>
       )}
-
-      <style>{`
-        .react-flow__edge-path { stroke: #555555; stroke-width: 2px; transition: stroke 0.15s; }
-        .react-flow__edge:hover .react-flow__edge-path { stroke: #D83333; }
-        .react-flow__controls button { background: #222222; fill: #E6E6E6; border-bottom: 1px solid #333333; }
-        .react-flow__controls button:hover { background: #2A2A2A; }
-      `}</style>
     </div>
   );
 }
