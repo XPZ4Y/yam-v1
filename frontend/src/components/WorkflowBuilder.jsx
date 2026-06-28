@@ -18,7 +18,6 @@ const nodeTypesList = [
 
 const bounds = [[-2000, -2000], [2000, 2000]];
 
-// Dynamic Custom Node: Renders input fields for every data property (except label)
 const CustomNode = ({ id, data }) => {
   const { updateNodeData } = useReactFlow();
 
@@ -131,7 +130,12 @@ function WorkflowCanvas() {
     }
     return '';
   });
+  
+  const [repoUrl, setRepoUrl] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('yamal_repo') || '' : '');
+  const [pat, setPat] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('yamal_pat') || '' : '');
+  
   const [copyStatus, setCopyStatus] = useState('Copy to Clipboard');
+  const [pushStatus, setPushStatus] = useState('Push to GitHub');
 
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState(null);
@@ -139,7 +143,6 @@ function WorkflowCanvas() {
 
   const { screenToFlowPosition } = useReactFlow();
 
-  // Map all node types to the custom dynamic component
   const nodeTypes = useMemo(() => {
     return nodeTypesList.reduce((acc, nt) => {
       acc[nt.type] = CustomNode;
@@ -151,11 +154,13 @@ function WorkflowCanvas() {
     if (typeof window !== 'undefined') {
       localStorage.setItem('yamal_nodes', JSON.stringify(nodes));
       localStorage.setItem('yamal_edges', JSON.stringify(edges));
+      localStorage.setItem('yamal_repo', repoUrl);
+      localStorage.setItem('yamal_pat', pat);
       const newYaml = generateYamlLocally(nodes, edges);
       localStorage.setItem('yamal_current_yaml', newYaml);
       setCurrentYaml(newYaml);
     }
-  }, [nodes, edges]);
+  }, [nodes, edges, repoUrl, pat]);
 
   const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
   const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
@@ -171,10 +176,6 @@ function WorkflowCanvas() {
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
-  // --- DEVELOPER DOCS: NODE CREATION ---
-  // Triggered when a node is dragged from sidebar to canvas.
-  // Generates unique ID, maps viewport coordinates to canvas coordinates, 
-  // and initializes stateful data objects which automatically spawn inputs inside the CustomNode component.
   const onDrop = useCallback((event) => {
     event.preventDefault();
     const type = event.dataTransfer.getData('application/reactflow');
@@ -207,9 +208,72 @@ function WorkflowCanvas() {
     setTimeout(() => setCopyStatus('Copy to Clipboard'), 2000);
   };
 
-  // --- DEVELOPER DOCS: NODE REMOVAL ---
-  // Drops node by ID from ReactFlow state. 
-  // Concurrently sweeps edge array to sever and delete any connections linked to this node.
+  const handleGithubPush = async () => {
+    if (!repoUrl || !pat) {
+      alert('Provide Repository Link and PAT.');
+      return;
+    }
+    if (nodes.length === 0) {
+      alert('Cannot push empty workflow.');
+      return;
+    }
+
+    let filename = prompt('Enter workflow file name (e.g., build.yaml):', 'workflow.yaml');
+    if (!filename) return;
+    if (!filename.endsWith('.yaml') && !filename.endsWith('.yml')) filename += '.yaml';
+
+    let owner, repo;
+    try {
+      const cleanUrl = repoUrl.replace('https://github.com/', '').replace('.git', '');
+      [owner, repo] = cleanUrl.split('/').filter(Boolean);
+      if (!owner || !repo) throw new Error();
+    } catch (e) {
+      alert('Invalid repository format. Use owner/repo or full URL.');
+      return;
+    }
+
+    setPushStatus('Pushing...');
+    try {
+      const path = `.github/workflows/${filename}`;
+      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+      const headers = {
+        'Authorization': `Bearer ${pat}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+      };
+
+      let sha;
+      const getRes = await fetch(apiUrl, { headers });
+      if (getRes.ok) {
+        const getData = await getRes.json();
+        sha = getData.sha;
+      }
+
+      const contentEncoded = btoa(unescape(encodeURIComponent(currentYaml)));
+
+      const putRes = await fetch(apiUrl, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          message: `Update ${filename} via Yamal Workflow Builder`,
+          content: contentEncoded,
+          sha
+        })
+      });
+
+      if (!putRes.ok) {
+        const err = await putRes.json();
+        throw new Error(err.message || 'Push failed');
+      }
+
+      setPushStatus('Success!');
+      setTimeout(() => setPushStatus('Push to GitHub'), 2000);
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+      setPushStatus('Push to GitHub');
+    }
+  };
+
   const deleteNode = (id) => {
     setNodes((nds) => nds.filter((n) => n.id !== id));
     setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
@@ -258,6 +322,31 @@ function WorkflowCanvas() {
               {n.label}
             </div>
           ))}
+        </div>
+
+        <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid #444', paddingTop: '15px' }}>
+          <h4 style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#AAA' }}>GitHub Deploy</h4>
+          <input 
+            placeholder="owner/repo or URL" 
+            value={repoUrl}
+            onChange={e => setRepoUrl(e.target.value)}
+            style={{ background: '#111', border: '1px solid #444', color: '#FFF', padding: '8px', borderRadius: '4px', fontSize: '12px' }}
+          />
+          <input 
+            type="password"
+            placeholder="Personal Access Token" 
+            value={pat}
+            onChange={e => setPat(e.target.value)}
+            style={{ background: '#111', border: '1px solid #444', color: '#FFF', padding: '8px', borderRadius: '4px', fontSize: '12px' }}
+          />
+          <button 
+            onClick={handleGithubPush}
+            style={{ width: '100%', padding: '10px', background: '#238636', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', transition: 'background 0.2s' }}
+            onMouseOver={(e) => e.target.style.background = '#2ea043'}
+            onMouseOut={(e) => e.target.style.background = '#238636'}
+          >
+            {pushStatus}
+          </button>
         </div>
         
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
