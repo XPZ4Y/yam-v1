@@ -1,11 +1,16 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { ReactFlow, Background, Controls, addEdge, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
+import { ReactFlow, Background, Controls, addEdge, applyNodeChanges, applyEdgeChanges, useReactFlow, ReactFlowProvider } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
 const nodeTypesList = [
   { type: 'execute-branch', label: 'Execute Workflow on Branch' },
   { type: 'container-setup', label: 'Container Setup' },
-  { type: 'echo', label: 'Echo' }
+  { type: 'echo', label: 'Echo' },
+  { type: 'checkout', label: 'Checkout Code' },
+  { type: 'setup-go', label: 'Setup Go' },
+  { type: 'run-script', label: 'Run Script' },
+  { type: 'upload-artifact', label: 'Upload Artifact' },
+  { type: 'download-artifact', label: 'Download Artifact' }
 ];
 
 const bounds = [[-2000, -2000], [2000, 2000]];
@@ -74,7 +79,7 @@ const generateYamlLocally = (nodes, edges) => {
   return yaml;
 };
 
-export default function WorkflowBuilder() {
+function WorkflowCanvas() {
   const [nodes, setNodes] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('yamal_nodes');
@@ -100,10 +105,12 @@ export default function WorkflowBuilder() {
   });
   const [copyStatus, setCopyStatus] = useState('Copy to Clipboard');
 
-  // Interactive Hover Trash Button States
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState(null);
   const [trashPosition, setTrashPosition] = useState({ top: 0, left: 0 });
+
+  // Access canvas context metrics API
+  const { screenToFlowPosition } = useReactFlow();
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -134,7 +141,11 @@ export default function WorkflowBuilder() {
     const type = event.dataTransfer.getData('application/reactflow');
     if (!type) return;
 
-    const position = { x: event.clientX - 300, y: event.clientY - 50 };
+    // Convert absolute screen client coordinates into canvas internal flow metrics
+    const position = screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
     
     const newNode = {
       id: `${type}_${Date.now()}`,
@@ -144,11 +155,16 @@ export default function WorkflowBuilder() {
         label: nodeTypesList.find(n => n.type === type)?.label,
         ...(type === 'execute-branch' && { branch_name: 'master' }),
         ...(type === 'container-setup' && { params: {} }),
-        ...(type === 'echo' && { message: '' })
+        ...(type === 'echo' && { message: '' }),
+        ...(type === 'checkout' && { uses: 'actions/checkout@v4' }),
+        ...(type === 'setup-go' && { uses: 'actions/setup-go@v5', 'go-version': '1.21' }),
+        ...(type === 'run-script' && { run: 'echo "hello world"' }),
+        ...(type === 'upload-artifact' && { uses: 'actions/upload-artifact@v4', name: 'artifact-name', path: './path' }),
+        ...(type === 'download-artifact' && { uses: 'actions/download-artifact@v4', name: 'artifact-name', path: './path' })
       },
     };
     setNodes((nds) => nds.concat(newNode));
-  }, []);
+  }, [screenToFlowPosition]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(currentYaml);
@@ -156,20 +172,27 @@ export default function WorkflowBuilder() {
     setTimeout(() => setCopyStatus('Copy to Clipboard'), 2000);
   };
 
-  // Node Deletion Handler
   const deleteNode = (id) => {
     setNodes((nds) => nds.filter((n) => n.id !== id));
     setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
     setHoveredNodeId(null);
   };
 
-  // Edge Deletion Handler
   const deleteEdge = (id) => {
     setEdges((eds) => eds.filter((e) => e.id !== id));
     setHoveredEdgeId(null);
   };
 
-  // Track element hovering coordinates safely
+  const resetWorkflow = () => {
+    setNodes([]);
+    setEdges([]);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('yamal_nodes');
+      localStorage.removeItem('yamal_edges');
+      localStorage.removeItem('yamal_current_yaml');
+    }
+  };
+
   const handleNodeMouseEnter = (event, node) => {
     const rect = event.target.getBoundingClientRect();
     setHoveredNodeId(node.id);
@@ -190,8 +213,7 @@ export default function WorkflowBuilder() {
   return (
     <div className="dark-theme-wrapper" style={{ display: 'flex', width: '100vw', height: '100vh', backgroundColor: '#191919' }}>
       
-      {/* Sidebar */}
-      <aside className="sidebar" style={{ display: 'flex', flexDirection: 'column', width: '260px', background: '#222', padding: '20px', borderRight: '1px solid #333', color: '#E6E6E6', zIndex: 10 }}>
+      <aside className="sidebar" style={{ display: 'flex', flexDirection: 'column', width: '260px', background: '#222', padding: '20px', borderRight: '1px solid #333', color: '#E6E6E6', zIndex: 10, overflowY: 'auto' }}>
         <h3 style={{ marginTop: 0 }}>Nodes</h3>
         <div style={{ flexGrow: 1 }}>
           {nodeTypesList.map((n) => (
@@ -199,22 +221,29 @@ export default function WorkflowBuilder() {
               key={n.type}
               onDragStart={(e) => onDragStart(e, n.type)}
               draggable
-              style={{ background: '#2A2A2A', padding: '12px', marginBottom: '10px', borderRadius: '4px', cursor: 'grab', border: '1px solid #444' }}
+              style={{ background: '#2A2A2A', padding: '12px', marginBottom: '10px', borderRadius: '4px', cursor: 'grab', border: '1px solid #444', fontSize: '14px' }}
             >
               {n.label}
             </div>
           ))}
         </div>
         
-        <button 
-          onClick={() => setIsModalOpen(true)} 
-          style={{ width: '100%', padding: '12px', background: 'linear-gradient(83.21deg, #3245ff 0%, #bc52ee 100%)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
-        >
-          View YAML
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
+          <button 
+            onClick={resetWorkflow} 
+            style={{ width: '100%', padding: '12px', background: '#444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            Reset
+          </button>
+          <button 
+            onClick={() => setIsModalOpen(true)} 
+            style={{ width: '100%', padding: '12px', background: 'linear-gradient(83.21deg, #3245ff 0%, #bc52ee 100%)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            View YAML
+          </button>
+        </div>
       </aside>
       
-      {/* Canvas Wrapper */}
       <div 
         className="canvas-container" 
         style={{ flexGrow: 1, height: '100%', position: 'relative' }} 
@@ -239,7 +268,6 @@ export default function WorkflowBuilder() {
           <Controls />
         </ReactFlow>
 
-        {/* Global Floating Overlay Deletion Buttons */}
         {hoveredNodeId && (
           <button
             onMouseEnter={() => setHoveredNodeId(hoveredNodeId)}
@@ -265,7 +293,6 @@ export default function WorkflowBuilder() {
         )}
       </div>
 
-      {/* YAML Editor Modal */}
       {isModalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ background: '#222', padding: '20px', borderRadius: '8px', width: '600px', maxWidth: '90%', border: '1px solid #444', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
@@ -310,5 +337,14 @@ export default function WorkflowBuilder() {
         .react-flow__handle { background: #555555; }
       `}</style>
     </div>
+  );
+}
+
+// Wrap inside ReactFlowProvider so screenToFlowPosition hook context is active
+export default function WorkflowBuilder() {
+  return (
+    <ReactFlowProvider>
+      <WorkflowCanvas />
+    </ReactFlowProvider>
   );
 }
