@@ -4,6 +4,8 @@ Visual workflow builder.
 Nodes in. Valid YAML out.
 Client-side only. No backend bloat. (/backend directory exist for decoration)
 
+<img width="1072" height="801" alt="Screenshot_2026-06-28_20-39-10" src="https://github.com/user-attachments/assets/c5aa27b8-31f9-4887-ada9-fb8292be79b7" />
+
 ## Tech
 
 Astro framework. 
