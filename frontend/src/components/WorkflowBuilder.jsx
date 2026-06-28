@@ -1,5 +1,8 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { ReactFlow, Background, Controls, addEdge, applyNodeChanges, applyEdgeChanges, useReactFlow, ReactFlowProvider } from '@xyflow/react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { 
+  ReactFlow, Background, Controls, addEdge, applyNodeChanges, 
+  applyEdgeChanges, useReactFlow, ReactFlowProvider, Handle, Position 
+} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
 const nodeTypesList = [
@@ -14,6 +17,37 @@ const nodeTypesList = [
 ];
 
 const bounds = [[-2000, -2000], [2000, 2000]];
+
+// Dynamic Custom Node: Renders input fields for every data property (except label)
+const CustomNode = ({ id, data }) => {
+  const { updateNodeData } = useReactFlow();
+
+  return (
+    <div style={{ background: '#222', border: '1px solid #444', borderRadius: '6px', padding: '10px', minWidth: '150px', color: '#E6E6E6' }}>
+      <Handle type="target" position={Position.Top} style={{ background: '#555' }} />
+      <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '12px', borderBottom: '1px solid #333', paddingBottom: '4px' }}>
+        {data.label}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {Object.entries(data).map(([key, val]) => {
+          if (key === 'label') return null;
+          return (
+            <div key={key} style={{ display: 'flex', flexDirection: 'column' }}>
+              <label style={{ fontSize: '10px', color: '#AAA', marginBottom: '2px' }}>{key}</label>
+              <input 
+                className="nodrag"
+                value={val}
+                onChange={(e) => updateNodeData(id, { [key]: e.target.value })}
+                style={{ background: '#111', border: '1px solid #444', color: '#FFF', padding: '4px', borderRadius: '4px', fontSize: '10px' }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <Handle type="source" position={Position.Bottom} style={{ background: '#555' }} />
+    </div>
+  );
+};
 
 const generateYamlLocally = (nodes, edges) => {
   if (nodes.length === 0) return '# No nodes added yet.';
@@ -63,13 +97,7 @@ const generateYamlLocally = (nodes, edges) => {
     let hasConfig = false;
     for (const [key, value] of Object.entries(node.data)) {
       if (key !== 'label') {
-        let printVal = value;
-        if (typeof value === 'object') {
-          printVal = Object.keys(value).length === 0 ? '{}' : JSON.stringify(value);
-        } else if (value === '') {
-          printVal = '""';
-        }
-        yaml += `      ${key}: ${printVal}\n`;
+        yaml += `      ${key}: ${value === '' ? '""' : value}\n`;
         hasConfig = true;
       }
     }
@@ -109,8 +137,15 @@ function WorkflowCanvas() {
   const [hoveredEdgeId, setHoveredEdgeId] = useState(null);
   const [trashPosition, setTrashPosition] = useState({ top: 0, left: 0 });
 
-  // Access canvas context metrics API
   const { screenToFlowPosition } = useReactFlow();
+
+  // Map all node types to the custom dynamic component
+  const nodeTypes = useMemo(() => {
+    return nodeTypesList.reduce((acc, nt) => {
+      acc[nt.type] = CustomNode;
+      return acc;
+    }, {});
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -136,16 +171,16 @@ function WorkflowCanvas() {
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
+  // --- DEVELOPER DOCS: NODE CREATION ---
+  // Triggered when a node is dragged from sidebar to canvas.
+  // Generates unique ID, maps viewport coordinates to canvas coordinates, 
+  // and initializes stateful data objects which automatically spawn inputs inside the CustomNode component.
   const onDrop = useCallback((event) => {
     event.preventDefault();
     const type = event.dataTransfer.getData('application/reactflow');
     if (!type) return;
 
-    // Convert absolute screen client coordinates into canvas internal flow metrics
-    const position = screenToFlowPosition({
-      x: event.clientX,
-      y: event.clientY,
-    });
+    const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
     
     const newNode = {
       id: `${type}_${Date.now()}`,
@@ -154,7 +189,7 @@ function WorkflowCanvas() {
       data: { 
         label: nodeTypesList.find(n => n.type === type)?.label,
         ...(type === 'execute-branch' && { branch_name: 'master' }),
-        ...(type === 'container-setup' && { params: {} }),
+        ...(type === 'container-setup' && { params: '{}' }),
         ...(type === 'echo' && { message: '' }),
         ...(type === 'checkout' && { uses: 'actions/checkout@v4' }),
         ...(type === 'setup-go' && { uses: 'actions/setup-go@v5', 'go-version': '1.21' }),
@@ -172,6 +207,9 @@ function WorkflowCanvas() {
     setTimeout(() => setCopyStatus('Copy to Clipboard'), 2000);
   };
 
+  // --- DEVELOPER DOCS: NODE REMOVAL ---
+  // Drops node by ID from ReactFlow state. 
+  // Concurrently sweeps edge array to sever and delete any connections linked to this node.
   const deleteNode = (id) => {
     setNodes((nds) => nds.filter((n) => n.id !== id));
     setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
@@ -196,18 +234,12 @@ function WorkflowCanvas() {
   const handleNodeMouseEnter = (event, node) => {
     const rect = event.target.getBoundingClientRect();
     setHoveredNodeId(node.id);
-    setTrashPosition({
-      top: rect.top + window.scrollY - 15,
-      left: rect.right + window.scrollX - 10,
-    });
+    setTrashPosition({ top: rect.top + window.scrollY - 15, left: rect.right + window.scrollX - 10 });
   };
 
   const handleEdgeMouseEnter = (event, edge) => {
     setHoveredEdgeId(edge.id);
-    setTrashPosition({
-      top: event.clientY - 15,
-      left: event.clientX - 15,
-    });
+    setTrashPosition({ top: event.clientY - 15, left: event.clientX - 15 });
   };
 
   return (
@@ -253,6 +285,7 @@ function WorkflowCanvas() {
         <ReactFlow 
           nodes={nodes} 
           edges={edges} 
+          nodeTypes={nodeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
@@ -329,18 +362,15 @@ function WorkflowCanvas() {
       )}
 
       <style>{`
-        .react-flow__node { background: #222222; color: #E6E6E6; border: 1px solid #333333; border-radius: 6px; padding: 10px; }
         .react-flow__edge-path { stroke: #555555; stroke-width: 2px; transition: stroke 0.15s; }
         .react-flow__edge:hover .react-flow__edge-path { stroke: #D83333; }
         .react-flow__controls button { background: #222222; fill: #E6E6E6; border-bottom: 1px solid #333333; }
         .react-flow__controls button:hover { background: #2A2A2A; }
-        .react-flow__handle { background: #555555; }
       `}</style>
     </div>
   );
 }
 
-// Wrap inside ReactFlowProvider so screenToFlowPosition hook context is active
 export default function WorkflowBuilder() {
   return (
     <ReactFlowProvider>
