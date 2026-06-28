@@ -84,23 +84,47 @@ const generateYamlLocally = (nodes, edges) => {
     return '# Error: Cycle detected in workflow graph.\n# Please ensure arrows flow in one direction.';
   }
 
-  let yaml = 'steps:\n';
+  let yaml = 'name: Visual Workflow\n\non:\n  push:\n    branches: [master]\n  workflow_dispatch:\n\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n';
+  
   order.forEach(id => {
     const node = nodes.find(n => n.id === id);
     if (!node) return;
 
-    yaml += `  - id: ${node.id}\n`;
-    yaml += `    type: ${node.type}\n`;
-    yaml += `    config:\n`;
+    yaml += `      - name: ${node.data.label || node.id}\n`;
+    
+    let isUses = false;
+    let isRun = false;
 
-    let hasConfig = false;
+    if (node.data.uses) {
+      yaml += `        uses: ${node.data.uses}\n`;
+      isUses = true;
+    } else if (node.data.run) {
+      yaml += `        run: ${node.data.run}\n`;
+      isRun = true;
+    } else if (node.type === 'echo') {
+      yaml += `        run: echo "${node.data.message || ''}"\n`;
+      isRun = true;
+    } else {
+      yaml += `        run: echo "Executing abstract node ${node.type}"\n`;
+      isRun = true;
+    }
+
+    let hasExtraParams = false;
+    let paramBlock = '';
+    
     for (const [key, value] of Object.entries(node.data)) {
-      if (key !== 'label') {
-        yaml += `      ${key}: ${value === '' ? '""' : value}\n`;
-        hasConfig = true;
+      if (['label', 'uses', 'run', 'message'].includes(key)) continue;
+      paramBlock += `          ${key}: ${value === '' ? '""' : value}\n`;
+      hasExtraParams = true;
+    }
+
+    if (hasExtraParams) {
+      if (isUses) {
+        yaml += `        with:\n${paramBlock}`;
+      } else if (isRun) {
+        yaml += `        env:\n${paramBlock}`;
       }
     }
-    if (!hasConfig) yaml += `      {}\n`;
   });
 
   return yaml;
