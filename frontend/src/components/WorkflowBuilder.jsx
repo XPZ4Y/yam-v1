@@ -6,14 +6,24 @@ import {
 import '@xyflow/react/dist/style.css';
 
 const nodeTypesList = [
-  { type: 'execute-branch', label: 'Execute Workflow on Branch' },
-  { type: 'container-setup', label: 'Container Setup' },
-  { type: 'echo', label: 'Echo' },
-  { type: 'checkout', label: 'Checkout Code' },
-  { type: 'setup-go', label: 'Setup Go' },
-  { type: 'run-script', label: 'Run Script' },
-  { type: 'upload-artifact', label: 'Upload Artifact' },
-  { type: 'download-artifact', label: 'Download Artifact' }
+  // Common Blocks
+  { type: 'execute-branch', label: 'Execute Workflow on Branch', category: 'Common' },
+  { type: 'container-setup', label: 'Container Setup (Job Level)', category: 'Common' },
+  { type: 'echo', label: 'Echo', category: 'Common' },
+  { type: 'checkout', label: 'Checkout Code', category: 'Common' },
+  { type: 'setup-go', label: 'Setup Go', category: 'Common' },
+  { type: 'run-script', label: 'Run Script', category: 'Common' },
+  { type: 'upload-artifact', label: 'Upload Artifact', category: 'Common' },
+  { type: 'download-artifact', label: 'Download Artifact', category: 'Common' },
+  { type: 'github-release', label: 'GitHub Release', category: 'Common' },
+  
+  // Pro: Void Build Blocks
+  { type: 'void-prep', label: 'Void: Prepare Container', category: 'Pro: Void Build Blocks' },
+  { type: 'checkout-treeless', label: 'Treeless Checkout', category: 'Pro: Void Build Blocks' },
+  { type: 'void-masterdir', label: 'Void: Prepare Masterdir', category: 'Pro: Void Build Blocks' },
+  { type: 'xbps-build', label: 'Void: Build Package', category: 'Pro: Void Build Blocks' },
+  { type: 'find-xbps', label: 'Void: Find XBPS Package', category: 'Pro: Void Build Blocks' },
+  { type: 'lfs-upload', label: 'Git LFS Upload', category: 'Pro: Void Build Blocks' }
 ];
 
 const bounds = [[-2000, -2000], [2000, 2000]];
@@ -22,7 +32,7 @@ const CustomNode = ({ id, data }) => {
   const { updateNodeData } = useReactFlow();
 
   return (
-    <div style={{ background: '#222', border: '1px solid #444', borderRadius: '6px', padding: '10px', minWidth: '150px', color: '#E6E6E6' }}>
+    <div style={{ background: '#222', border: '1px solid #444', borderRadius: '6px', padding: '10px', minWidth: '220px', maxWidth: '350px', color: '#E6E6E6' }}>
       <Handle type="target" position={Position.Top} style={{ background: '#555' }} />
       <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '12px', borderBottom: '1px solid #333', paddingBottom: '4px' }}>
         {data.label}
@@ -33,12 +43,21 @@ const CustomNode = ({ id, data }) => {
           return (
             <div key={key} style={{ display: 'flex', flexDirection: 'column' }}>
               <label style={{ fontSize: '10px', color: '#AAA', marginBottom: '2px' }}>{key}</label>
-              <input 
-                className="nodrag"
-                value={val}
-                onChange={(e) => updateNodeData(id, { [key]: e.target.value })}
-                style={{ background: '#111', border: '1px solid #444', color: '#FFF', padding: '4px', borderRadius: '4px', fontSize: '10px' }}
-              />
+              {key === 'run' ? (
+                <textarea 
+                  className="nodrag"
+                  value={val}
+                  onChange={(e) => updateNodeData(id, { [key]: e.target.value })}
+                  style={{ background: '#111', border: '1px solid #444', color: '#FFF', padding: '6px', borderRadius: '4px', fontSize: '10px', minHeight: '80px', fontFamily: 'monospace', resize: 'vertical' }}
+                />
+              ) : (
+                <input 
+                  className="nodrag"
+                  value={val}
+                  onChange={(e) => updateNodeData(id, { [key]: e.target.value })}
+                  style={{ background: '#111', border: '1px solid #444', color: '#FFF', padding: '4px', borderRadius: '4px', fontSize: '10px', fontFamily: 'monospace' }}
+                />
+              )}
             </div>
           );
         })}
@@ -84,13 +103,22 @@ const generateYamlLocally = (nodes, edges) => {
     return '# Error: Cycle detected in workflow graph.\n# Please ensure arrows flow in one direction.';
   }
 
-  let yaml = 'name: Visual Workflow\n\non:\n  push:\n    branches: [master]\n  workflow_dispatch:\n\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n';
+  let containerBlock = '';
+  const containerNode = nodes.find(n => n.type === 'container-setup');
+  if (containerNode && containerNode.data.image) {
+    containerBlock = `    container:\n      image: ${containerNode.data.image}\n      options: --privileged\n      volumes:\n        - /dev:/dev\n\n`;
+  }
+
+  let yaml = `name: Visual Workflow\n\non:\n  push:\n    branches: [master]\n  workflow_dispatch:\n\njobs:\n  build:\n    runs-on: ubuntu-latest\n${containerBlock}    steps:\n`;
   
   order.forEach(id => {
     const node = nodes.find(n => n.id === id);
     if (!node) return;
+    if (node.type === 'container-setup') return;
 
-    yaml += `      - name: ${node.data.label || node.id}\n`;
+    yaml += `      - name: "${node.data.label || node.id}"\n`;
+    
+    if (node.data.id) yaml += `        id: ${node.data.id}\n`;
     
     let isUses = false;
     let isRun = false;
@@ -99,7 +127,14 @@ const generateYamlLocally = (nodes, edges) => {
       yaml += `        uses: ${node.data.uses}\n`;
       isUses = true;
     } else if (node.data.run) {
-      yaml += `        run: ${node.data.run}\n`;
+      if (node.data.run.includes('\n')) {
+        yaml += `        run: |\n`;
+        node.data.run.split('\n').forEach(line => {
+          yaml += `          ${line}\n`;
+        });
+      } else {
+        yaml += `        run: ${node.data.run}\n`;
+      }
       isRun = true;
     } else if (node.type === 'echo') {
       yaml += `        run: echo "${node.data.message || ''}"\n`;
@@ -113,7 +148,7 @@ const generateYamlLocally = (nodes, edges) => {
     let paramBlock = '';
     
     for (const [key, value] of Object.entries(node.data)) {
-      if (['label', 'uses', 'run', 'message'].includes(key)) continue;
+      if (['label', 'uses', 'run', 'message', 'id'].includes(key)) continue;
       paramBlock += `          ${key}: ${value === '' ? '""' : value}\n`;
       hasExtraParams = true;
     }
@@ -165,7 +200,7 @@ function WorkflowCanvas() {
   const [hoveredEdgeId, setHoveredEdgeId] = useState(null);
   const [trashPosition, setTrashPosition] = useState({ top: 0, left: 0 });
 
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
 
   const nodeTypes = useMemo(() => {
     return nodeTypesList.reduce((acc, nt) => {
@@ -214,17 +249,43 @@ function WorkflowCanvas() {
       data: { 
         label: nodeTypesList.find(n => n.type === type)?.label,
         ...(type === 'execute-branch' && { branch_name: 'master' }),
-        ...(type === 'container-setup' && { params: '{}' }),
+        ...(type === 'container-setup' && { image: 'ghcr.io/void-linux/void-musl-full' }),
         ...(type === 'echo' && { message: '' }),
         ...(type === 'checkout' && { uses: 'actions/checkout@v4' }),
         ...(type === 'setup-go' && { uses: 'actions/setup-go@v5', 'go-version': '1.21' }),
         ...(type === 'run-script' && { run: 'echo "hello world"' }),
         ...(type === 'upload-artifact' && { uses: 'actions/upload-artifact@v4', name: 'artifact-name', path: './path' }),
-        ...(type === 'download-artifact' && { uses: 'actions/download-artifact@v4', name: 'artifact-name', path: './path' })
+        ...(type === 'download-artifact' && { uses: 'actions/download-artifact@v4', name: 'artifact-name', path: './path' }),
+        ...(type === 'github-release' && { uses: 'softprops/action-gh-release@v2', files: 'hello.txt' }),
+        
+        ...(type === 'void-prep' && { run: "mkdir -p /etc/xbps.d && cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/\nsed -i 's|repo-default|repo-ci|g' /etc/xbps.d/*-repository-*.conf\nxbps-install -Syu xbps && xbps-install -yu && xbps-install -y sudo bash curl git git-lfs\nuseradd -G xbuilder -M builder" }),
+        ...(type === 'checkout-treeless' && { uses: 'classabbyamp/treeless-checkout-action@v1' }),
+        ...(type === 'void-masterdir' && { run: "chown -R builder:builder .\nsudo -Eu builder common/travis/set_mirror.sh\nsudo -Eu builder common/travis/prepare.sh\ncommon/travis/fetch-xtools.sh" }),
+        ...(type === 'xbps-build' && { run: "sudo -Eu builder ./xbps-src pkg LibreCAD" }),
+        ...(type === 'find-xbps' && { id: "verify_xbps", run: "XBPS_FILE=$(find hostdir/binpkgs -name \"LibreCAD-*.xbps\" | head -n 1)\nif [ -z \"$XBPS_FILE\" ]; then\n  echo \"No LibreCAD xbps package found!\"\n  exit 1\nfi\necho \"xbps_path=$XBPS_FILE\" >> $GITHUB_OUTPUT\necho \"Found XBPS package at: $XBPS_FILE\"" }),
+        ...(type === 'lfs-upload' && { 
+          run: "git clone https://x-access-token:${{ secrets.PERSONAL_PAT}}@github.com/kpnc0/void-packages-binaries.git binary-repo\ngit lfs install\ngit lfs track \"*.xbps\"\ncd binary-repo\nmkdir -p packages\ncp ../${{ steps.verify_xbps.outputs.xbps_path }} packages/\ngit config user.email \"bot@voidlinux.org\"\ngit config user.name \"Void Bot\"\ngit add -f packages/*.xbps\ngit commit -m \"Add LibreCAD package from ${{ github.sha }}\"\ngit push -f origin master", 
+          PERSONAL_PAT: "${{ secrets.PERSONAL_PAT}}" 
+        })
       },
     };
     setNodes((nds) => nds.concat(newNode));
   }, [screenToFlowPosition]);
+
+  const loadHelloWorldTemplate = () => {
+    const tNodes = [
+      { id: 't_checkout', type: 'checkout', position: { x: 250, y: 100 }, data: { label: 'Checkout Code', uses: 'actions/checkout@v4' } },
+      { id: 't_script', type: 'run-script', position: { x: 250, y: 250 }, data: { label: 'Run Script', run: 'echo "hello world" > hello.txt' } },
+      { id: 't_release', type: 'github-release', position: { x: 250, y: 400 }, data: { label: 'GitHub Release', uses: 'softprops/action-gh-release@v2', files: 'hello.txt' } }
+    ];
+    const tEdges = [
+      { id: 'te_1', source: 't_checkout', target: 't_script' },
+      { id: 'te_2', source: 't_script', target: 't_release' }
+    ];
+    setNodes(tNodes);
+    setEdges(tEdges);
+    setTimeout(() => fitView({ duration: 500 }), 100);
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(currentYaml);
@@ -333,22 +394,30 @@ function WorkflowCanvas() {
   return (
     <div className="dark-theme-wrapper" style={{ display: 'flex', width: '100vw', height: '100vh', backgroundColor: '#191919' }}>
       
-      <aside className="sidebar" style={{ display: 'flex', flexDirection: 'column', width: '260px', background: '#222', padding: '20px', borderRight: '1px solid #333', color: '#E6E6E6', zIndex: 10, overflowY: 'auto' }}>
+      <aside className="sidebar" style={{ display: 'flex', flexDirection: 'column', width: '280px', background: '#222', padding: '20px', borderRight: '1px solid #333', color: '#E6E6E6', zIndex: 10, overflowY: 'auto' }}>
         <h3 style={{ marginTop: 0 }}>Nodes</h3>
-        <div style={{ flexGrow: 1 }}>
-          {nodeTypesList.map((n) => (
-            <div
-              key={n.type}
-              onDragStart={(e) => onDragStart(e, n.type)}
-              draggable
-              style={{ background: '#2A2A2A', padding: '12px', marginBottom: '10px', borderRadius: '4px', cursor: 'grab', border: '1px solid #444', fontSize: '14px' }}
-            >
-              {n.label}
+        
+        <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: '15px' }}>
+          {['Common', 'Pro: Void Build Blocks'].map(category => (
+            <div key={category}>
+              <h4 style={{ color: '#888', margin: '0 0 8px 0', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>{category}</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {nodeTypesList.filter(n => n.category === category).map((n) => (
+                  <div
+                    key={n.type}
+                    onDragStart={(e) => onDragStart(e, n.type)}
+                    draggable
+                    style={{ background: '#2A2A2A', padding: '10px', borderRadius: '4px', cursor: 'grab', border: '1px solid #444', fontSize: '12px' }}
+                  >
+                    {n.label}
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>
 
-        <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid #444', paddingTop: '15px' }}>
+        <div style={{ marginTop: '15px', display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid #444', paddingTop: '15px' }}>
           <h4 style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#AAA' }}>GitHub Deploy</h4>
           <input 
             placeholder="owner/repo or URL" 
@@ -374,6 +443,12 @@ function WorkflowCanvas() {
         </div>
         
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
+          <button 
+            onClick={loadHelloWorldTemplate} 
+            style={{ width: '100%', padding: '10px', background: '#30363D', color: '#58A6FF', border: '1px solid #58A6FF', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+          >
+            Load Hello World Template
+          </button>
           <button 
             onClick={resetWorkflow} 
             style={{ width: '100%', padding: '12px', background: '#444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
