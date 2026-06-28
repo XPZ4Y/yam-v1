@@ -1,0 +1,191 @@
+diff --git a/frontend/src/components/WorkflowBuilder.jsx b/frontend/src/components/WorkflowBuilder.jsx
+index 9a2cfb3..7a8b412 100644
+--- a/frontend/src/components/WorkflowBuilder.jsx
++++ b/frontend/src/components/WorkflowBuilder.jsx
+@@ -1,54 +1,153 @@
+-import React from 'react';
+-import { ReactFlow, Background, Controls } from '@xyflow/react';
++import React, { useState, useCallback, useRef } from 'react';
++import { ReactFlow, Background, Controls, addEdge, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
+ import '@xyflow/react/dist/style.css';
+ 
+-const nodes = [
+-  { id: '1', position: { x: 100, y: 100 }, data: { label: 'HTTP Request' } },
+-  { id: '2', position: { x: 400, y: 100 }, data: { label: 'Send Email' } },
++const initialNodes = [
++  { id: 'node_1', type: 'default', position: { x: 150, y: 150 }, data: { label: 'Execute_workflow_on_branch_name' } }
+ ];
+ 
+-const edges = [{ id: 'e1-2', source: '1', target: '2' }];
+-
+ const bounds = [[-2000, -2000], [2000, 2000]];
+ 
+ export default function WorkflowBuilder() {
++  const reactFlowWrapper = useRef(null);
++  const [nodes, setNodes] = useState(initialNodes);
++  const [edges, setEdges] = useState([]);
++  const [reactFlowInstance, setReactFlowInstance] = useState(null);
++
++  const syncToYAML = useCallback((currentNodes, currentEdges) => {
++    const payload = {
++      nodes: currentNodes.map(n => ({
++        id: n.id,
++        type: n.data.label.toLowerCase().includes('branch') ? 'branch-trigger' : n.data.label.toLowerCase(),
++        position: n.position,
++        data: {}
++      })),
++      edges: currentEdges.map(e => ({
++        id: e.id,
++        source: e.source,
++        target: e.target
++      }))
++    };
++    localStorage.setItem('yamal_flow_state', JSON.stringify(payload));
++  }, []);
++
++  const onNodesChange = useCallback((changes) => {
++    setNodes((nds) => {
++      const updated = applyNodeChanges(changes, nds);
++      syncToYAML(updated, edges);
++      return updated;
++    });
++  }, [edges, syncToYAML]);
++
++  const onEdgesChange = useCallback((changes) => {
++    setEdges((eds) => {
++      const updated = applyEdgeChanges(changes, eds);
++      syncToYAML(nodes, updated);
++      return updated;
++    });
++  }, [nodes, syncToYAML]);
++
++  const onConnect = useCallback((params) => {
++    setEdges((eds) => {
++      const updated = addEdge({ ...params, type: 'smoothstep' }, eds);
++      syncToYAML(nodes, updated);
++      return updated;
++    });
++  }, [nodes, syncToYAML]);
++
++  const onDragStart = (event, nodeType) => {
++    event.dataTransfer.setData('application/reactflow', nodeType);
++    event.dataTransfer.effectAllowed = 'move';
++  };
++
++  const onDragOver = useCallback((event) => {
++    event.preventDefault();
++    event.dataTransfer.dropEffect = 'move';
++  }, []);
++
++  const onDrop = useCallback((event) => {
++    event.preventDefault();
++    if (!reactFlowInstance) return;
++
++    const type = event.dataTransfer.getData('application/reactflow');
++    if (!type) return;
++
++    const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
++    const position = reactFlowInstance.screenToFlowPosition({
++      x: event.clientX - reactFlowBounds.left,
++      y: event.clientY - reactFlowBounds.top,
++    });
++
++    const newNode = {
++      id: `node_${Date.now()}`,
++      type: 'default',
++      position,
++      data: { label: type },
++    };
++
++    setNodes((nds) => {
++      const updated = nds.concat(newNode);
++      syncToYAML(updated, edges);
++      return updated;
++    });
++  }, [reactFlowInstance, edges, syncToYAML]);
++
+   return (
+-    <div className="dark-theme-wrapper" style={{ width: '100%', height: '100%' }}>
+-      <ReactFlow 
+-        nodes={nodes} 
+-        edges={edges} 
+-        translateExtent={bounds}
+-        nodeExtent={bounds}
+-        fitView 
+-      >
+-        <Background color="#333" gap={16} size={1} />
+-        <Controls />
+-      </ReactFlow>
++    <div className="dark-theme-wrapper" style={{ width: '100%', height: '100%', display: 'flex' }}>
++      <div className="node-sidebar">
++        <div className="sidebar-title">Nodes</div>
++        <div className="draggable-node" draggable onDragStart={(e) => onDragStart(e, 'Execute_workflow_on_branch_name')}>Execute_workflow_on_branch_name</div>
++        <div className="draggable-node" draggable onDragStart={(e) => onDragStart(e, 'Container_setup')}>Container_setup</div>
++        <div className="draggable-node" draggable onDragStart={(e) => onDragStart(e, 'echo')}>echo</div>
++      </div>
++      <div ref={reactFlowWrapper} style={{ flexGrow: 1, height: '100%' }} onDragOver={onDragOver} onDrop={onDrop}>
++        <ReactFlow 
++          nodes={nodes} 
++          edges={edges} 
++          onNodesChange={onNodesChange}
++          onEdgesChange={onEdgesChange}
++          onConnect={onConnect}
++          onInit={setReactFlowInstance}
++          translateExtent={bounds}
++          nodeExtent={bounds}
++          fitView 
++        >
++          <Background color="#333" gap={16} size={1} />
++          <Controls />
++        </ReactFlow>
++      </div>
+       <style>{`
+         .dark-theme-wrapper {
+           background-color: #191919;
++          font-family: sans-serif;
++        }
++        .node-sidebar {
++          width: 260px;
++          background: #222222;
++          border-right: 1px solid #333333;
++          padding: 15px;
++          z-index: 10;
++        }
++        .sidebar-title {
++          color: #E6E6E6;
++          margin-bottom: 15px;
++          font-weight: bold;
++        }
++        .draggable-node {
++          background: #191919;
++          color: #E6E6E6;
++          padding: 10px;
++          border: 1px solid #333333;
++          margin-bottom: 10px;
++          border-radius: 4px;
++          cursor: grab;
++          font-size: 13px;
+         }
+         .dark-theme-wrapper .react-flow__node {
+           background: #222222;
+           color: #E6E6E6;
+           border: 1px solid #333333;
+           border-radius: 6px;
+-          padding: 10px;
+-        }
+-        .dark-theme-wrapper .react-flow__edge-path {
+-          stroke: #555555;
+-        }
+-        .dark-theme-wrapper .react-flow__controls button {
+-          background: #222222;
+-          fill: #E6E6E6;
+-          border-bottom: 1px solid #333333;
+-        }
+-        .dark-theme-wrapper .react-flow__controls button:hover {
+-          background: #2A2A2A;
+-        }
+-        .dark-theme-wrapper .react-flow__handle {
+-          background: #555555;
+         }
+       `}</style>
+     </div>

@@ -1,0 +1,90 @@
+diff --git a/frontend/src/pages/index.astro b/frontend/src/pages/index.astro
+index 11d69e1..22e49d2 100644
+--- a/frontend/src/pages/index.astro
++++ b/frontend/src/pages/index.astro
+@@ -4,9 +4,17 @@ import WorkflowBuilder from '../components/WorkflowBuilder'
+ ---
+ 
+ <Layout title="Yamal - Workflow Builder">
+-  <main>
+-    <h1>Dwr</h1>
+-    <p>Drag and drop YAML workflow builder</p>
++  <main class="app-container">
+     <WorkflowBuilder client:load />
+   </main>
+ </Layout>
++
++<style is:global>
++  html, body, .app-container {
++    margin: 0;
++    padding: 0;
++    width: 100vw;
++    height: 100vh;
++    overflow: hidden;
++  }
++</style>
+diff --git a/frontend/src/components/WorkflowBuilder.jsx b/frontend/src/components/WorkflowBuilder.jsx
+index 3b0afa1..9a2cfb3 100644
+--- a/frontend/src/components/WorkflowBuilder.jsx
++++ b/frontend/src/components/WorkflowBuilder.jsx
+@@ -1,18 +1,55 @@
+ import React from 'react';
+-import { ReactFlow } from '@xyflow/react';
++import { ReactFlow, Background, Controls } from '@xyflow/react';
+ import '@xyflow/react/dist/style.css';
+ 
+ const nodes = [
+-  { id: '1', position: { x: 0, y: 0 }, data: { label: 'Node 1' } },
+-  { id: '2', position: { x: 200, y: 0 }, data: { label: 'Node 2' } },
++  { id: '1', position: { x: 100, y: 100 }, data: { label: 'HTTP Request' } },
++  { id: '2', position: { x: 400, y: 100 }, data: { label: 'Send Email' } },
+ ];
+ 
+ const edges = [{ id: 'e1-2', source: '1', target: '2' }];
+ 
++const bounds = [[-2000, -2000], [2000, 2000]];
++
+ export default function WorkflowBuilder() {
+   return (
+-    <div style={{ width: '100%', height: '400px' }}>
+-      <ReactFlow nodes={nodes} edges={edges} fitView />
++    <div className="dark-theme-wrapper" style={{ width: '100%', height: '100%' }}>
++      <ReactFlow 
++        nodes={nodes} 
++        edges={edges} 
++        translateExtent={bounds}
++        nodeExtent={bounds}
++        fitView 
++      >
++        <Background color="#333" gap={16} size={1} />
++        <Controls />
++      </ReactFlow>
++      <style>{`
++        .dark-theme-wrapper {
++          background-color: #191919;
++        }
++        .dark-theme-wrapper .react-flow__node {
++          background: #222222;
++          color: #E6E6E6;
++          border: 1px solid #333333;
++          border-radius: 6px;
++          padding: 10px;
++        }
++        .dark-theme-wrapper .react-flow__edge-path {
++          stroke: #555555;
++        }
++        .dark-theme-wrapper .react-flow__controls button {
++          background: #222222;
++          fill: #E6E6E6;
++          border-bottom: 1px solid #333333;
++        }
++        .dark-theme-wrapper .react-flow__controls button:hover {
++          background: #2A2A2A;
++        }
++        .dark-theme-wrapper .react-flow__handle {
++          background: #555555;
++        }
++      `}</style>
+     </div>
+   );
+ }

@@ -4,9 +4,17 @@ import WorkflowBuilder from '../components/WorkflowBuilder'
 ---
 
 <Layout title="Yamal - Workflow Builder">
-  <main>
-    <h1>Dwr</h1>
-    <p>Drag and drop YAML workflow builder</p>
+  <main class="app-container">
     <WorkflowBuilder client:load />
   </main>
 </Layout>
+
+<style is:global>
+  html, body, .app-container {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+  }
+</style>
