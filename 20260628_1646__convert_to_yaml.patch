@@ -10,117 +10,39 @@ const nodeTypesList = [
 
 const bounds = [[-2000, -2000], [2000, 2000]];
 
-// Local YAML Generator Helper
-const generateYamlLocally = (nodes, edges) => {
-  if (nodes.length === 0) return '# No nodes added yet.';
-
-  // 1. Setup graph for topological sort
-  const inDegree = {};
-  const graph = {};
-
-  nodes.forEach(n => {
-    inDegree[n.id] = 0;
-    graph[n.id] = [];
-  });
-
-  edges.forEach(e => {
-    if (inDegree[e.target] !== undefined && inDegree[e.source] !== undefined) {
-      inDegree[e.target]++;
-      graph[e.source].push(e.target);
-    }
-  });
-
-  // 2. Find nodes with no incoming edges (roots)
-  const queue = [];
-  nodes.forEach(n => {
-    if (inDegree[n.id] === 0) queue.push(n.id);
-  });
-
-  // 3. Sort
-  const order = [];
-  while (queue.length > 0) {
-    const id = queue.shift();
-    order.push(id);
-    graph[id].forEach(neighbor => {
-      inDegree[neighbor]--;
-      if (inDegree[neighbor] === 0) queue.push(neighbor);
-    });
-  }
-
-  // 4. Validate DAG
-  if (order.length !== nodes.length) {
-    return '# Error: Cycle detected in workflow graph.\n# Please ensure arrows flow in one direction.';
-  }
-
-  // 5. Build YAML
-  let yaml = 'steps:\n';
-  order.forEach(id => {
-    const node = nodes.find(n => n.id === id);
-    if (!node) return;
-
-    yaml += `  - id: ${node.id}\n`;
-    yaml += `    type: ${node.type}\n`;
-    yaml += `    config:\n`;
-
-    let hasConfig = false;
-    for (const [key, value] of Object.entries(node.data)) {
-      if (key !== 'label') {
-        let printVal = value;
-        if (typeof value === 'object') {
-          printVal = Object.keys(value).length === 0 ? '{}' : JSON.stringify(value);
-        } else if (value === '') {
-          printVal = '""';
-        }
-        yaml += `      ${key}: ${printVal}\n`;
-        hasConfig = true;
-      }
-    }
-    
-    if (!hasConfig) {
-      yaml += `      {}\n`;
-    }
-  });
-
-  return yaml;
-};
-
 export default function WorkflowBuilder() {
   const [nodes, setNodes] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('yamal_nodes');
-      return saved ? JSON.parse(saved) : [];
-    }
-    return [];
+    const saved = localStorage.getItem('yamal_nodes');
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [edges, setEdges] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('yamal_edges');
-      return saved ? JSON.parse(saved) : [];
-    }
-    return [];
+    const saved = localStorage.getItem('yamal_edges');
+    return saved ? JSON.parse(saved) : [];
   });
 
   // Modal and YAML states
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentYaml, setCurrentYaml] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('yamal_current_yaml') || '';
-    }
-    return '';
-  });
+  const [currentYaml, setCurrentYaml] = useState(() => localStorage.getItem('yamal_current_yaml') || '');
   const [copyStatus, setCopyStatus] = useState('Copy to Clipboard');
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('yamal_nodes', JSON.stringify(nodes));
-      localStorage.setItem('yamal_edges', JSON.stringify(edges));
-      
-      // Generate YAML locally instead of fetching
-      const newYaml = generateYamlLocally(nodes, edges);
-      localStorage.setItem('yamal_current_yaml', newYaml);
-      setCurrentYaml(newYaml);
-    }
+    localStorage.setItem('yamal_nodes', JSON.stringify(nodes));
+    localStorage.setItem('yamal_edges', JSON.stringify(edges));
+    
+    fetch('http://localhost:8080/yaml_v1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodes, edges })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.yaml) {
+        localStorage.setItem('yamal_current_yaml', data.yaml);
+        setCurrentYaml(data.yaml);
+      }
+    })
+    .catch(() => {});
   }, [nodes, edges]);
 
   const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
@@ -227,7 +149,7 @@ export default function WorkflowBuilder() {
             
             <textarea 
               readOnly 
-              value={currentYaml} 
+              value={currentYaml || '# No nodes connected or backend unreachable...'} 
               style={{ width: '100%', height: '350px', background: '#191919', color: '#A6E22E', border: '1px solid #333', padding: '15px', fontFamily: 'monospace', fontSize: '14px', borderRadius: '4px', resize: 'none', boxSizing: 'border-box' }}
             />
             
